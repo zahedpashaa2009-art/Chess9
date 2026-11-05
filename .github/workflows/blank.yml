@@ -1,0 +1,42 @@
+name: Build APK
+on:
+  workflow_dispatch:
+  push:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Unzip project
+        run: |
+          set -e
+          unzip -q -o *.zip -d work
+          root=$(dirname "$(find work -name settings.gradle.kts | head -n1)")
+          echo "ROOT=$PWD/$root" >> $GITHUB_ENV
+      - name: Download Stockfish
+        run: |
+          set -e
+          mkdir -p "$RUNNER_TEMP/sf" "$ROOT/app/src/main/jniLibs/arm64-v8a"
+          ok=0
+          for tag in sf_17.1 sf_17 sf_16.1; do
+            url="https://github.com/official-stockfish/Stockfish/releases/download/$tag/stockfish-android-armv8.tar"
+            if curl -fL "$url" -o "$RUNNER_TEMP/sf/sf.tar"; then ok=1; break; fi
+          done
+          if [ "$ok" != "1" ]; then echo "Stockfish download failed"; exit 1; fi
+          tar -xf "$RUNNER_TEMP/sf/sf.tar" -C "$RUNNER_TEMP/sf"
+          bin=$(find "$RUNNER_TEMP/sf" -type f -name 'stockfish-android-armv8*' ! -name '*.tar' | head -n1)
+          cp "$bin" "$ROOT/app/src/main/jniLibs/arm64-v8a/libstockfish.so"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build
+        working-directory: ${{ env.ROOT }}
+        run: gradle assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChessCoach-apk
+          path: ${{ env.ROOT }}/app/build/outputs/apk/debug/app-debug.apk
